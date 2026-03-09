@@ -86,7 +86,15 @@ The build script will:
 3. Compile libpng as a static library with ASan and libFuzzer coverage instrumentation
 4. Link the fuzz harness into the `fuzz_png` binary
 
-## Running the Fuzzer
+## Running the Experiment
+
+To reproduce the full evaluation from the report (build everything, run the toy fuzzer for 30s, then fuzz libpng for 3 minutes):
+
+```bash
+bash run_experiment.sh
+```
+
+### Running the Fuzzer Manually
 
 ```bash
 # Basic run with the seed corpus
@@ -122,13 +130,20 @@ bash clean.sh
 ```
 libpng-fuzzer/
 ├── README.md
-├── build.sh             # Downloads libpng 1.2.56, compiles with instrumentation
-├── clean.sh             # Removes build artifacts and downloaded sources
-├── fuzz_target.cc       # Fuzz harness (LLVMFuzzerTestOneInput entry point)
-├── seeds/               # Seed corpus
-│   └── seed.png         # Minimal 1x1 PNG seed
-├── build/               # (generated) Instrumented libpng build
-└── fuzz_png             # (generated) Fuzzer binary
+├── report.md              # Full evaluation report
+├── build.sh               # Downloads libpng 1.2.56, compiles with instrumentation
+├── clean.sh               # Removes all build artifacts
+├── run_experiment.sh      # Reproduces the full evaluation (build + toy + libpng)
+├── fuzz_target.cc         # Fuzz harness (LLVMFuzzerTestOneInput entry point)
+├── seeds/                 # Seed corpus
+│   └── seed.png           # Minimal 1x1 PNG seed
+├── basic_eval/            # Toy vulnerable parser for basic evaluation
+│   ├── vuln_parser.c      # Parser with planted memory safety bugs
+│   ├── fuzz_vuln.cc       # Fuzz harness for the toy parser
+│   └── build.sh           # Build script for the toy fuzzer
+├── build/                 # (generated) Instrumented libpng build
+├── corpus/                # (generated) Discovered corpus inputs
+└── fuzz_png               # (generated) Fuzzer binary
 ```
 
 ## Fallback Plan
