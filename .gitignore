@@ -1,1 +1,18 @@
 *.pdf
+
+
+seeds/*
+!seeds/*.png
+
+# Build artifacts
+libpng*/
+libpng*.tar.gz
+build/
+fuzz_png
+*.dSYM
+*.o
+*.a
+
+# Fuzzer runtime directories
+corpus/
+crashes/
