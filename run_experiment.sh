@@ -7,7 +7,7 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-LIBPNG_TIME=180   # 3 minutes
+LIBPNG_TIME=120   # 2 minutes
 TOY_TIME=30       # 30 seconds
 
 echo "============================================"
