@@ -9,8 +9,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 echo "Cleaning build artifacts..."
 
 rm -rf "$SCRIPT_DIR/build"
-# rm -rf "$SCRIPT_DIR/libpng-1.2.56"
-rm -f  "$SCRIPT_DIR/libpng-1.2.56.tar.gz"
+rm -f  "$SCRIPT_DIR"/libpng-*.tar.gz
 rm -f  "$SCRIPT_DIR/fuzz_png"
 rm -rf "$SCRIPT_DIR/fuzz_png.dSYM"
 

@@ -2,12 +2,12 @@
 # run_experiment.sh — Reproduces the full evaluation from the report.
 # 1. Builds both fuzzers (libpng + toy)
 # 2. Runs the toy vulnerable parser fuzzer (~30s, expects a crash)
-# 3. Runs the libpng fuzzer for 3 minutes
+# 3. Runs the libpng fuzzer for 10 minutes
 
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-LIBPNG_TIME=120   # 2 minutes
+LIBPNG_TIME=600   # 10 minutes
 TOY_TIME=30       # 30 seconds
 
 echo "============================================"

@@ -1,4 +1,4 @@
-// Fuzz target for libpng-1.2.56
+// Fuzz target for libpng 1.6.55
 // Adapted from Google's fuzzer-test-suite (Apache 2.0)
 // https://github.com/google/fuzzer-test-suite/tree/master/libpng-1.2.56
 
@@ -7,7 +7,6 @@
 #include <string.h>
 #include <assert.h>
 
-#define PNG_INTERNAL
 #include "png.h"
 
 struct BufState {
@@ -65,10 +64,8 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
   assert(png_ptr);
 
   // Disable CRC checking so malformed chunks are still processed.
-  png_ptr->flags &= ~PNG_FLAG_CRC_CRITICAL_MASK;
-  png_ptr->flags |= PNG_FLAG_CRC_CRITICAL_IGNORE;
-  png_ptr->flags &= ~PNG_FLAG_CRC_ANCILLARY_MASK;
-  png_ptr->flags |= PNG_FLAG_CRC_ANCILLARY_NOWARN;
+  // PNG_CRC_QUIET_USE: ignore CRC errors and use the chunk data anyway.
+  png_set_crc_action(png_ptr, PNG_CRC_QUIET_USE, PNG_CRC_QUIET_USE);
 
   auto &info_ptr = O.info_ptr;
   info_ptr = png_create_info_struct(png_ptr);
@@ -83,7 +80,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
   png_set_sig_bytes(png_ptr, kPngHeaderSize);
 
   // libpng error handling — longjmp back here on errors.
-  if (setjmp(png_ptr->jmpbuf)) {
+  if (setjmp(png_jmpbuf(png_ptr))) {
     return 0;
   }
 

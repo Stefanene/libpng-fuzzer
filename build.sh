@@ -1,6 +1,6 @@
 #!/bin/bash
 # Build script for libpng fuzzer
-# Downloads libpng 1.2.56, builds it with ASan + libFuzzer instrumentation,
+# Downloads libpng 1.6.55, builds it with ASan + libFuzzer instrumentation,
 # and compiles the fuzz target.
 
 set -e
@@ -25,18 +25,18 @@ export CXX="$LLVM_PREFIX/bin/clang++"
 echo "Using CC=$CC"
 echo "Using CXX=$CXX"
 
-# --- Download libpng 1.2.56 ---
-LIBPNG_TAR="libpng-1.2.56.tar.gz"
-LIBPNG_DIR="libpng-1.2.56"
-LIBPNG_URL="https://downloads.sourceforge.net/project/libpng/libpng12/older-releases/1.2.56/libpng-1.2.56.tar.gz"
+# --- Download libpng 1.6.55 ---
+LIBPNG_TAR="libpng-1.6.55.tar.gz"
+LIBPNG_DIR="libpng-1.6.55"
+LIBPNG_URL="https://downloads.sourceforge.net/project/libpng/libpng16/1.6.55/libpng-1.6.55.tar.gz"
 
 if [ ! -e "$SCRIPT_DIR/$LIBPNG_TAR" ]; then
-  echo "Downloading libpng 1.2.56..."
+  echo "Downloading libpng 1.6.55..."
   curl -L -o "$SCRIPT_DIR/$LIBPNG_TAR" "$LIBPNG_URL"
 fi
 
 if [ ! -d "$SCRIPT_DIR/$LIBPNG_DIR" ]; then
-  echo "Extracting libpng 1.2.56..."
+  echo "Extracting libpng 1.6.55..."
   tar xf "$SCRIPT_DIR/$LIBPNG_TAR" -C "$SCRIPT_DIR"
 fi
 
@@ -47,9 +47,6 @@ mkdir -p "$BUILD_DIR"
 cp -rf "$SCRIPT_DIR/$LIBPNG_DIR/"* "$BUILD_DIR/"
 
 echo "Building libpng with ASan + coverage instrumentation..."
-
-# Patch pngconf.h: replace legacy macOS <fp.h> with <math.h>
-sed -i.bak 's|#      include <fp.h>|#      include <math.h>|' "$BUILD_DIR/pngconf.h"
 
 (
   cd "$BUILD_DIR"
@@ -70,7 +67,7 @@ $CXX \
   -g -O1 \
   -I "$BUILD_DIR" \
   "$SCRIPT_DIR/fuzz_target.cc" \
-  "$BUILD_DIR/.libs/libpng12.a" \
+  "$BUILD_DIR/.libs/libpng16.a" \
   -lz \
   -o "$SCRIPT_DIR/fuzz_png"
 

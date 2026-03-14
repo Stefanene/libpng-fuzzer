@@ -19,7 +19,10 @@ We evaluate **coverage-guided fuzzing** as a bug-finding approach for detecting 
 - Invalid memory accesses
 - Program crashes caused by malformed input
 
-**Target application:** We target **libpng 1.2.56**, an open-source C library for parsing PNG image files. libpng is widely used in image processing software, web browsers, and scientific computing libraries. It is a compelling fuzzing target because it processes complex structured input (the PNG format includes headers, chunks with CRC checksums, and zlib-compressed image data), is written in C (a language without memory safety guarantees), and has a documented history of memory safety vulnerabilities.
+**Target application:** We target **libpng**, an open-source C library for parsing PNG image files. libpng is widely used in image processing software, web browsers, and scientific computing libraries. It is a compelling fuzzing target because it processes complex structured input (the PNG format includes headers, chunks with CRC checksums, and zlib-compressed image data), is written in C (a language without memory safety guarantees), and has a documented history of memory safety vulnerabilities. We evaluate two versions:
+
+- **libpng 1.2.56** — A legacy release from the 1.2.x branch, commonly used as a fuzzing benchmark (e.g., Google's fuzzer-test-suite).
+- **libpng 1.6.55** — The latest stable release (February 2026), representing the current state of libpng with modern security hardening and recent CVE fixes.
 
 ## 2. Technical Overview
 
@@ -29,12 +32,9 @@ The core of our system is a fuzz harness that implements the `LLVMFuzzerTestOneI
 
 1. **PNG signature validation** — The harness rejects inputs that do not begin with the 8-byte PNG magic number (`89 50 4E 47 0D 0A 1A 0A`). This ensures the fuzzer focuses its mutation budget on structurally plausible PNG data rather than wasting cycles on inputs that are immediately rejected.
 
-2. **CRC bypass** — By defining `PNG_INTERNAL` and directly manipulating `png_ptr->flags`, the harness disables CRC checking on both critical and ancillary chunks:
+2. **CRC bypass** — The harness disables CRC checking on both critical and ancillary chunks using the public API:
    ```c
-   png_ptr->flags &= ~PNG_FLAG_CRC_CRITICAL_MASK;
-   png_ptr->flags |= PNG_FLAG_CRC_CRITICAL_IGNORE;
-   png_ptr->flags &= ~PNG_FLAG_CRC_ANCILLARY_MASK;
-   png_ptr->flags |= PNG_FLAG_CRC_ANCILLARY_NOWARN;
+   png_set_crc_action(png_ptr, PNG_CRC_QUIET_USE, PNG_CRC_QUIET_USE);
    ```
    This is a critical optimization. Without it, the fuzzer would need to generate valid CRC32 checksums for every mutated chunk — an astronomically unlikely event via random mutation. Disabling CRC validation allows malformed chunks to reach the deeper parsing logic (chunk handlers, decompression, row filtering) where memory safety bugs are most likely to occur.
 
@@ -46,15 +46,16 @@ The core of our system is a fuzz harness that implements the `LLVMFuzzerTestOneI
 
 6. **RAII cleanup** — A `ScopedPngObject` struct ensures all libpng resources (read struct, info struct, row buffer) are freed on every exit path, including when libpng's internal error handling triggers a `longjmp`.
 
+**Portability note:** The harness uses only public libpng API functions (`png_set_crc_action`, `png_jmpbuf`), making it compatible across libpng versions from 1.2.x through 1.6.x without modification. An earlier version of the harness used `#define PNG_INTERNAL` to directly manipulate `png_ptr->flags` for CRC bypass, which required version-specific struct knowledge. The current approach is both cleaner and portable.
+
 ### Instrumented Build (`build.sh`)
 
-The build script downloads libpng 1.2.56 source code and compiles it with Homebrew LLVM using:
+The build script downloads the libpng source code and compiles it with Homebrew LLVM using:
 
 - **`-fsanitize=address,fuzzer`** in `CFLAGS` — At compile time, `-fsanitize=fuzzer` inserts inline 8-bit coverage counters at every basic block edge, while `-fsanitize=address` instruments every memory access for runtime error detection.
 - **`-fsanitize=address`** only in `LDFLAGS` — The `fuzzer` flag is omitted from link flags during the library build because libFuzzer's `main()` is only needed in the final binary, and including it during configure's link tests would fail (no `LLVMFuzzerTestOneInput` symbol exists yet).
-- A **patch to `pngconf.h`** replaces the legacy macOS `<fp.h>` header with `<math.h>`, since `<fp.h>` does not exist on modern macOS.
 
-The final fuzz target is compiled with `-fsanitize=address,fuzzer` and linked against the instrumented static library (`libpng12.a`) and system zlib.
+The final fuzz target is compiled with `-fsanitize=address,fuzzer` and linked against the instrumented static library (`libpng16.a`) and system zlib.
 
 ### Seed Corpus
 
@@ -84,7 +85,7 @@ brew install llvm zlib
 git clone https://github.com/Stefanene/libpng-fuzzer.git
 cd libpng-fuzzer
 
-# 2. Build the fuzzer (downloads libpng 1.2.56, patches, compiles everything)
+# 2. Build the fuzzer (downloads libpng 1.6.55, compiles everything)
 bash build.sh
 
 # 3. Verify the binary was created
@@ -92,12 +93,11 @@ ls -la fuzz_png
 ```
 
 `build.sh` performs the following automatically:
-1. Downloads `libpng-1.2.56.tar.gz` from SourceForge (if not already present)
+1. Downloads `libpng-1.6.55.tar.gz` from SourceForge (if not already present)
 2. Extracts the source and copies it to a `build/` directory
-3. Patches `pngconf.h` for macOS compatibility
-4. Runs `./configure --disable-shared` with instrumented `CC`/`CXX`
-5. Compiles the fuzz harness and links it against the instrumented `libpng12.a`
-6. Outputs the `fuzz_png` binary
+3. Runs `./configure --disable-shared` with instrumented `CC`/`CXX`
+4. Compiles the fuzz harness and links it against the instrumented `libpng16.a`
+5. Outputs the `fuzz_png` binary
 
 ### Running the Fuzzer
 
@@ -164,12 +164,13 @@ The toy program uses a 2-byte magic number (`0xDE 0xAD`) and a type byte to disp
 
 ### Production Evaluation Design
 
-For the production evaluation, we run the fuzzer against **libpng 1.2.56** — a real-world library with ~15,000 lines of C code. We evaluate:
+For the production evaluation, we run the fuzzer against two versions of libpng — **1.2.56** (legacy, ~15,000 lines of C) and **1.6.55** (current, ~30,000 lines of C). We evaluate:
 
 - How much of libpng's code the fuzzer manages to cover
 - Whether any ASan violations are triggered
 - Which chunk handlers and code paths are reached
 - Where coverage growth stalls and why
+- How the results compare across a legacy vs. modern release
 
 ## 5. Basic Evaluation
 
@@ -210,58 +211,130 @@ The toy evaluation demonstrates several key properties of our approach:
 
 ## 6. Evaluation on Production Application
 
-### Campaign Configuration
+### 6.1 libpng 1.2.56 (Legacy) — Summary
 
-We ran the libpng fuzzer for **120 seconds** starting from a single seed (69-byte, 1x1 pixel PNG):
+We previously ran 10-minute fuzzing campaigns against libpng 1.2.56, the legacy version commonly used as a fuzzing benchmark. Key results:
 
 | Metric | Value |
 |--------|-------|
-| Total executions | **652,774** |
-| Executions/second | **~81,600** |
-| Coverage (edges) | **619 / 3,118** (19.9% of instrumented counters) |
-| Features | **1,933** |
-| Corpus size | **418 inputs, 23 KB total** |
-| Peak RSS | **425 MB** |
+| Instrumented counters | **3,118** |
+| Coverage (edges) | **644 / 3,118** (20.7%) |
+| Features | **2,065** |
+| Corpus (deduplicated) | **371 inputs, 17 KB** |
+| Executions/second | **~98,000** |
+| Peak RSS | **429 MB** |
 | ASan crashes | **0** |
-| Unique functions reached | **27** (beyond seed) |
+| Seed baseline | **205 edges** |
 
-### Coverage Analysis
+Starting from 205 edges of seed coverage, the fuzzer grew to 644 edges — a **3.1x increase**. The fuzzer reached 27 unique functions beyond the seed, including handlers for `PLTE`, `bKGD`, `cHRM`, `gAMA`, `hIST`, `iCCP`, `oFFs`, `pCAL`, `pHYs`, `sBIT`, `sCAL`, `sPLT`, `sRGB`, `tEXt`, `tIME`, `tRNS`, `zTXt`, `IEND`, and internal routines like `png_do_read_interlace` and `png_read_filter_row`. No ASan violations were triggered, consistent with this version having been extensively fuzzed by Google's OSS-Fuzz and other researchers.
 
-Starting from a single seed with 205 edges of coverage, the fuzzer grew coverage to 619 edges within 2 minutes — a **3x increase**. Coverage growth was rapid in the first ~10 seconds as the fuzzer discovered new chunk types, then plateaued as deeper paths became harder to reach.
+### 6.2 libpng 1.6.55 (Current Release)
 
-**Chunk handlers reached** (27 unique functions discovered during fuzzing):
+#### Campaign Configuration
 
-The fuzzer successfully reached handlers for: `PLTE`, `bKGD`, `cHRM`, `gAMA`, `hIST`, `iCCP`, `oFFs`, `pCAL`, `pHYs`, `sBIT`, `sCAL`, `sPLT`, `sRGB`, `tEXt`, `tIME`, `tRNS`, `zTXt`, `IEND`, and the unknown-chunk handler. It also reached internal routines including `png_do_read_interlace`, `png_do_read_transformations`, and `png_read_filter_row`.
+We ran the fuzzer against libpng 1.6.55 for **10 minutes** starting from the same single seed (69-byte, 1x1 pixel PNG):
 
-This confirms the CRC bypass is working as intended — the fuzzer is reaching deep into the chunk parsing logic without being rejected at checksum validation.
+| Metric | Value |
+|--------|-------|
+| Instrumented counters | **6,680** |
+| Coverage (edges) | **987 / 6,680** (14.8%) |
+| Features | **4,241** |
+| Corpus (deduplicated) | **931 inputs, 167 KB** |
+| Corpus on disk | **1,216 inputs** |
+| Executions/second | **~95,000** |
+| Peak RSS | **424 MB** |
+| ASan crashes | **0** |
+| Seed baseline | **269 edges** |
 
-### Why No Crashes Were Found
+#### Coverage Analysis
 
-No ASan violations were triggered during our 2-minute campaign. This is expected for several reasons:
+libpng 1.6.55 has **6,680 instrumented counters** — more than **2x** the 3,118 in version 1.2.56, reflecting substantial codebase growth over the 1.2→1.6 major version gap (new chunk handlers, improved validation, ARM NEON-optimized filter routines, and additional safety checks).
 
-1. **libpng 1.2.56 has been extensively fuzzed.** Google's fuzzer-test-suite, OSS-Fuzz, and independent researchers have collectively run billions of fuzzing iterations against this exact version. The most accessible bugs have already been found and patched in later releases.
+Starting from 269 edges of seed coverage, the fuzzer grew to 987 edges — a **3.7x increase** and significantly more absolute coverage than the 644 edges achieved on 1.2.56. However, as a percentage of the instrumented codebase, coverage was **14.8%** vs. 20.7% for 1.2.56, reflecting the larger attack surface in 1.6.55.
 
-2. **Limited campaign duration.** At ~81K executions/second, our 2-minute campaign explored ~650K inputs. Production fuzzing campaigns typically run for hours or days. Deeper bugs — those requiring specific multi-chunk sequences or precise relationships between header fields — may require substantially more exploration.
+| Metric | libpng 1.2.56 | libpng 1.6.55 | Change |
+|--------|---------------|---------------|--------|
+| Instrumented counters | 3,118 | 6,680 | **+114%** |
+| Edges covered | 644 | 987 | **+53%** |
+| Coverage % | 20.7% | 14.8% | -5.9 pp |
+| Features | 2,065 | 4,241 | **+105%** |
+| Corpus size | 371 / 17 KB | 931 / 167 KB | **+151% / +882%** |
+| Seed baseline | 205 | 269 | **+31%** |
+| Coverage multiplier | 3.1x | 3.7x | — |
 
-3. **Coverage plateau at ~20%.** The fuzzer exercised roughly one-fifth of the instrumented code. The unreached 80% likely includes write-path code (our harness only reads), rarely-triggered error paths, and code guarded by complex state conditions that random mutation struggles to satisfy.
+The feature count more than doubled (2,065 → 4,241), indicating substantially more diverse execution patterns in the 1.6.55 codebase. The corpus was also much larger and heavier (931 inputs / 167 KB vs. 371 / 17 KB), suggesting the fuzzer found more structurally distinct inputs worth retaining.
 
-### Behaviors Observed
+#### Functions Reached
 
-While no memory safety violations were found, the fuzzer exercised a wide range of error-handling paths within libpng:
+The fuzzer discovered **26 unique functions** beyond the seed baseline, including:
 
-- **Invalid chunk types** — The fuzzer generated chunk type tags that libpng does not recognize, exercising the unknown-chunk handler.
-- **Invalid IHDR data** — Malformed image headers with invalid color types, compression methods, and interlace methods were processed.
-- **Decompression errors** — Corrupt zlib streams within IDAT chunks triggered `incorrect data check` errors.
-- **Bad filter types** — The fuzzer produced row data with invalid adaptive filter bytes, exercising filter validation logic.
-- **Out-of-order chunks** — Chunks appearing before the required IHDR were detected and rejected.
+- **Chunk handlers:** `png_handle_PLTE`, `png_handle_tRNS`, `png_handle_zTXt`, `png_handle_unknown`
+- **Filter routines:** `png_read_filter_row_sub`, `png_read_filter_row_avg`, `png_read_filter_row_paeth_1byte_pixel`, `png_read_filter_row_paeth_multibyte_pixel`
+- **ARM NEON optimizations:** `png_read_filter_row_sub3_neon`, `png_read_filter_row_sub4_neon`, `png_read_filter_row_up_neon`, `png_read_filter_row_avg3_neon`, `png_read_filter_row_avg4_neon`, `png_read_filter_row_paeth4_neon`
+- **Internal routines:** `png_do_read_interlace`, `png_crc_read`, `png_crc_finish`, `png_zstream_error`, `png_calloc`, `png_set_PLTE`
+- **Error handling:** `png_error`, `png_default_error`, `png_chunk_error`, `png_chunk_warning`, `png_chunk_benign_error`, `png_format_buffer`
 
-These behaviors demonstrate that the fuzzer is effectively exploring libpng's error-handling code, which is precisely the code most likely to contain memory safety bugs.
+Notably, the 1.6.55 run reached ARM NEON-optimized filter row implementations (running on Apple Silicon), which do not exist in the 1.2.56 codebase. These NEON routines are performance-critical code with manual SIMD intrinsics — a class of code where memory safety bugs can easily hide.
+
+#### Behaviors Observed
+
+The fuzzer exercised a wide range of error-handling paths within libpng 1.6.55:
+
+- **Invalid IHDR data** (218,604 occurrences) — The most common error. Malformed headers with invalid bit depths, color types, compression methods, filter methods, and interlace methods were consistently rejected.
+- **PNG unsigned integer out of range** (64,989) — Fields with extreme values triggered integer validation.
+- **IHDR: too long** (28,530) — A 1.6.x-specific check that rejects oversized IHDR chunks, not present in 1.2.56.
+- **Invalid chunk types** (27,444+) — Chunks with null bytes, control characters, and non-ASCII tags exercised the unknown-chunk handler.
+- **Decompression errors** — IDAT chunks with corrupt zlib streams triggered `invalid distance too far back` (21,227), `incorrect data check` (16,907), `incorrect header check` (12,070), `invalid stored block lengths` (3,675), and `invalid window size` (3,084).
+- **Bad adaptive filter values** (17,013) — Row data with invalid filter bytes exercised filter validation.
+- **Image dimension limits** — Inputs with zero dimensions (17,491 height / 12,143 width) and oversized dimensions (63,540 height / 27,543 width) were rejected.
+
+#### Why No Crashes Were Found
+
+No ASan violations were triggered during the 10-minute campaign against libpng 1.6.55. Several factors contribute to this result:
+
+1. **libpng 1.6.55 is the current release with recent security fixes.** This version was released in February 2026 with fixes for CVE-2026-22695 and CVE-2026-22801 (heap buffer over-reads). The most recently discovered vulnerabilities have already been patched.
+
+2. **Continuous fuzzing by OSS-Fuzz.** libpng has been continuously fuzzed by Google's OSS-Fuzz infrastructure since 2016, running millions of executions daily across multiple sanitizers. Shallow bugs reachable by generic mutation-based fuzzing have been systematically eliminated.
+
+3. **Improved input validation in 1.6.x.** Compared to 1.2.56, the 1.6.x branch includes stricter IHDR validation (e.g., the `IHDR: too long` check), improved chunk length bounds checking, and hardened integer arithmetic. These defenses reduce the likelihood of malformed inputs reaching vulnerable code paths.
+
+4. **Coverage plateau at ~15%.** The fuzzer exercised roughly one-seventh of the instrumented code. The unreached ~85% likely includes write-path code (our harness only reads), ICC profile processing, gamma correction pipelines, platform-specific I/O, and code guarded by complex multi-chunk state conditions.
+
+## 7. Comparative Analysis
+
+### Version Comparison
+
+The two libpng versions present meaningfully different fuzzing targets:
+
+| Aspect | libpng 1.2.56 | libpng 1.6.55 |
+|--------|---------------|---------------|
+| Codebase size | ~15K LOC, 3,118 counters | ~30K LOC, 6,680 counters |
+| Architecture | Pure C, portable | C + ARM NEON intrinsics |
+| Input validation | Basic checks | Stricter bounds, length checks |
+| CRC bypass | Required `PNG_INTERNAL` struct access | Public API (`png_set_crc_action`) |
+| Error handling | `png_error` / `png_warning` | + `png_chunk_benign_error`, richer error taxonomy |
+| Fuzzer throughput | ~98K exec/s | ~95K exec/s |
+| Coverage achieved | 20.7% | 14.8% |
+
+Despite the larger codebase, throughput remained comparable (~95K vs. ~98K exec/s), indicating the additional 1.6.x code does not significantly impact per-input execution time. The lower coverage percentage reflects the increased codebase surface area rather than reduced fuzzer effectiveness — the fuzzer actually covered **53% more absolute edges** in 1.6.55.
+
+### Key Findings
+
+1. **No memory safety bugs found in either version.** Both libpng 1.2.56 and 1.6.55 withstood 10 minutes of coverage-guided fuzzing with ASan enabled. This is consistent with both versions having been hardened through years of continuous fuzzing.
+
+2. **The fuzzer achieves consistent ~3–4x coverage amplification** from the seed baseline regardless of version, suggesting the coverage multiplier is a property of the fuzzer's exploration strategy rather than the target.
+
+3. **Coverage percentage decreases with codebase size** (20.7% → 14.8%) despite more absolute coverage, highlighting that larger targets require proportionally more fuzzing effort or smarter mutation strategies.
+
+4. **Corpus characteristics differ significantly.** The 1.6.55 corpus was 2.5x larger in count and 10x larger in bytes, suggesting the newer codebase has more distinct reachable states — likely due to additional chunk handlers, stricter validation branches, and NEON-specific code paths.
 
 ### Path Forward
 
 To increase the likelihood of finding bugs, future campaigns could:
 
-- **Run for significantly longer** (hours/days) to explore deeper state spaces
+- **Run for significantly longer** (hours/days) — our results show diminishing returns within 10 minutes, but deeper state-dependent bugs may require sustained exploration
 - **Use a richer seed corpus** with diverse PNG files (different color types, interlacing, ancillary chunks) to start with higher baseline coverage
-- **Target older, unpatched versions** of libpng where known CVEs have not been fixed
-- **Use structure-aware mutation** (e.g., Google's `png_mutator.h`) to generate mutations that respect PNG chunk boundaries
+- **Use structure-aware mutation** (e.g., Google's `png_mutator.h`) to generate mutations that respect PNG chunk boundaries, enabling the fuzzer to produce structurally valid inputs that pass early validation checks
+- **Add a custom dictionary** of PNG chunk type tags to help the fuzzer discover chunk handlers more quickly
+- **Combine with other sanitizers** (UBSan, MSan) to detect undefined behavior and uninitialized memory reads that ASan does not cover
+- **Target intermediate versions** between 1.2.56 and 1.6.55 where known CVEs were present but not yet patched, to validate that the fuzzer can rediscover real-world vulnerabilities
