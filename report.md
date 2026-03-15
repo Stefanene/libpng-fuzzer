@@ -21,7 +21,7 @@ We evaluate **coverage-guided fuzzing** as a bug-finding approach for detecting 
 
 **Target application:** We target **libpng**, an open-source C library for parsing PNG image files. libpng is widely used in image processing software, web browsers, and scientific computing libraries. It is a compelling fuzzing target because it processes complex structured input (the PNG format includes headers, chunks with CRC checksums, and zlib-compressed image data), is written in C (a language without memory safety guarantees), and has a documented history of memory safety vulnerabilities. We evaluate two versions:
 
-- **libpng 1.2.56** — A legacy release from the 1.2.x branch, commonly used as a fuzzing benchmark (e.g., Google's fuzzer-test-suite).
+- **libpng 1.2.56** — A legacy release from the 1.2.x branch, commonly used as a fuzzing benchmark (e.g., in Google's fuzzer-test-suite).
 - **libpng 1.6.55** — The latest stable release (February 2026), representing the current state of libpng with modern security hardening and recent CVE fixes.
 
 ## 2. Technical Overview
@@ -32,7 +32,7 @@ The core of our system is a fuzz harness that implements the `LLVMFuzzerTestOneI
 
 1. **PNG signature validation** — The harness rejects inputs that do not begin with the 8-byte PNG magic number (`89 50 4E 47 0D 0A 1A 0A`). This ensures the fuzzer focuses its mutation budget on structurally plausible PNG data rather than wasting cycles on inputs that are immediately rejected.
 
-2. **CRC bypass** — The harness disables CRC checking on both critical and ancillary chunks using the public API:
+2. **CRC bypass** — The harness disables CRC checking on both critical and ancillary PNG chunks using the public API:
    ```c
    png_set_crc_action(png_ptr, PNG_CRC_QUIET_USE, PNG_CRC_QUIET_USE);
    ```

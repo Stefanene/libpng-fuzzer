@@ -1,6 +1,4 @@
 // Fuzz target for libpng 1.6.55
-// Adapted from Google's fuzzer-test-suite (Apache 2.0)
-// https://github.com/google/fuzzer-test-suite/tree/master/libpng-1.2.56
 
 #include <stddef.h>
 #include <stdint.h>
@@ -26,7 +24,7 @@ void user_read_data(png_structp png_ptr, png_bytep data, png_size_t length) {
 
 static const int kPngHeaderSize = 8;
 
-// RAII wrapper for libpng resources.
+// RAII wrapper for libpng resources (adapted from Google's fuzzer-test-suite)
 struct ScopedPngObject {
   ~ScopedPngObject() {
     if (row && png_ptr) {
@@ -43,15 +41,14 @@ struct ScopedPngObject {
   BufState *buf_state = nullptr;
 };
 
-// Entry point for libFuzzer.
-// Roughly follows the libpng book example:
-// http://www.libpng.org/pub/png/book/chapter13.html
+
+// Entry point for libFuzzer
 extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
   if (size < kPngHeaderSize) {
     return 0;
   }
 
-  // Verify PNG signature before proceeding.
+  // Verify PNG signature before proceeding
   if (png_sig_cmp(const_cast<uint8_t*>(data), 0, kPngHeaderSize)) {
     return 0;
   }
@@ -63,15 +60,14 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
       PNG_LIBPNG_VER_STRING, nullptr, nullptr, nullptr);
   assert(png_ptr);
 
-  // Disable CRC checking so malformed chunks are still processed.
-  // PNG_CRC_QUIET_USE: ignore CRC errors and use the chunk data anyway.
+  // Disable CRC checking so malformed chunks are still processed
   png_set_crc_action(png_ptr, PNG_CRC_QUIET_USE, PNG_CRC_QUIET_USE);
 
   auto &info_ptr = O.info_ptr;
   info_ptr = png_create_info_struct(png_ptr);
   assert(info_ptr);
 
-  // Set up reading from the in-memory buffer.
+  // Set up reading from the in-memory buffer
   auto &buf_state = O.buf_state;
   buf_state = new BufState();
   buf_state->data = data + kPngHeaderSize;
@@ -79,12 +75,12 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
   png_set_read_fn(png_ptr, buf_state, user_read_data);
   png_set_sig_bytes(png_ptr, kPngHeaderSize);
 
-  // libpng error handling — longjmp back here on errors.
+  // libpng error handling (longjmp back here on errors)
   if (setjmp(png_jmpbuf(png_ptr))) {
     return 0;
   }
 
-  // Read the PNG header and image info.
+  // Read the PNG header and image info
   png_read_info(png_ptr, info_ptr);
 
   png_uint_32 width, height;
@@ -96,7 +92,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
     return 0;
   }
 
-  // Skip very large images to avoid timeouts.
+  // Skip very large images to avoid timeouts
   if (static_cast<uint64_t>(height) * width > 2000000) {
     return 0;
   }
