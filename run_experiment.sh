@@ -42,7 +42,7 @@ echo "============================================"
 echo ""
 
 mkdir -p "$SCRIPT_DIR/corpus"
-"$SCRIPT_DIR/fuzz_png" "$SCRIPT_DIR/corpus/" "$SCRIPT_DIR/seeds/" -max_total_time=$LIBPNG_TIME 2>&1
+"$SCRIPT_DIR/fuzz_png" "$SCRIPT_DIR/corpus/" "$SCRIPT_DIR/seeds/" -dict="$SCRIPT_DIR/png.dict" -max_total_time=$LIBPNG_TIME 2>&1
 
 echo ""
 echo "============================================"

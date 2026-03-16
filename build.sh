@@ -52,9 +52,11 @@ echo "Building libpng with ASan + coverage instrumentation..."
   cd "$BUILD_DIR"
   # -fsanitize=fuzzer adds coverage instrumentation at compile time (main is only added at link time).
   # LDFLAGS omits fuzzer so configure's link tests pass without LLVMFuzzerTestOneInput.
-  export CFLAGS="-fsanitize=address,fuzzer -g -O1"
-  export CXXFLAGS="-fsanitize=address,fuzzer -g -O1"
-  export LDFLAGS="-fsanitize=address"
+  # UBSan detects integer overflow, shift errors, null deref — bugs ASan misses.
+  # -DPNG_DISABLE_ADLER32_CHECK_SUPPORTED enables the ADLER32 bypass option at runtime.
+  export CFLAGS="-fsanitize=address,undefined,fuzzer -fno-sanitize-recover=all -g -O1 -DPNG_DISABLE_ADLER32_CHECK_SUPPORTED"
+  export CXXFLAGS="-fsanitize=address,undefined,fuzzer -fno-sanitize-recover=all -g -O1 -DPNG_DISABLE_ADLER32_CHECK_SUPPORTED"
+  export LDFLAGS="-fsanitize=address,undefined"
   ./configure --disable-shared --quiet
   make -j"$(sysctl -n hw.ncpu 2>/dev/null || nproc)" --quiet
 )
@@ -63,8 +65,10 @@ echo "Building libpng with ASan + coverage instrumentation..."
 echo "Compiling fuzz target..."
 $CXX \
   -std=c++11 \
-  -fsanitize=address,fuzzer \
+  -fsanitize=address,undefined,fuzzer \
+  -fno-sanitize-recover=all \
   -g -O1 \
+  -DPNG_DISABLE_ADLER32_CHECK_SUPPORTED \
   -I "$BUILD_DIR" \
   "$SCRIPT_DIR/fuzz_target.cc" \
   "$BUILD_DIR/.libs/libpng16.a" \
@@ -75,7 +79,7 @@ echo ""
 echo "Build successful! Binary: $SCRIPT_DIR/fuzz_png"
 echo ""
 echo "Run the fuzzer:"
-echo "  ./fuzz_png seeds/"
+echo "  ./fuzz_png seeds/ -dict=png.dict"
 echo ""
 echo "Run with a time limit:"
-echo "  ./fuzz_png seeds/ -max_total_time=60"
+echo "  ./fuzz_png seeds/ -dict=png.dict -max_total_time=60"
