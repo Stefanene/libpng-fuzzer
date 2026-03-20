@@ -1,6 +1,5 @@
 // Fuzz target for libpng 1.6.55
-// Enhanced harness with image transforms, ADLER32 bypass, custom allocator,
-// post-IDAT chunk processing, and simplified READ API coverage.
+// (Enhanced) harness implementation
 
 #include <stddef.h>
 #include <stdint.h>

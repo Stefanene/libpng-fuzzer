@@ -20,6 +20,6 @@ rm -rf "$SCRIPT_DIR/basic_eval/fuzz_vuln.dSYM"
 # Fuzzer runtime artifacts
 rm -f  "$SCRIPT_DIR"/crash-*
 rm -rf "$SCRIPT_DIR/corpus"
-find "$SCRIPT_DIR/seeds" -type f ! -name 'seed.png' -delete 2>/dev/null || true
+find "$SCRIPT_DIR/seeds" -type f ! -name '*.png' -delete 2>/dev/null || true
 
 echo "Clean complete."
